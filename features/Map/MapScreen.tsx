@@ -7,14 +7,12 @@ import {
   TouchableOpacity,
   SafeAreaView,
   Modal,
+  Dimensions,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import HeaderBar from '@/components/HeaderBar';
 import ButtonControl from '@/components/ButtonControl';
 import JoystickControl from '@/components/JoystickControl';
-import MapCanvas from '@/components/MapCanvas'; 
-import debounce from 'lodash.debounce';
-import { useCallback } from 'react';
 
 
 export default function MapScreen() {
@@ -26,70 +24,25 @@ export default function MapScreen() {
   const [showControlDropdown, setShowControlDropdown] = useState(false);
   const [robotIp, setRobotIp] = useState<string | null>(null);
   const ws = useRef<WebSocket | null>(null);
-  const [mapData, setMapData] = useState(null);
-  const [isMappingActive, setIsMappingActive] = useState(true);
-  const lastMapUpdate = useRef(Date.now());
-  const mapSocket = useRef<WebSocket | null>(null);
-  const controlSocket = useRef<WebSocket | null>(null);
-
 
   useEffect(() => {
-    const setupSockets = async () => {
-        const ip = await AsyncStorage.getItem('robotIp');
-        if (!ip) return;
-
-        // MAP SOCKET
-        const mapWS = new WebSocket(`ws://${ip}:9090`);
-        mapSocket.current = mapWS;
-
-        mapWS.onopen = () => {
-        console.log('🧭 Map WebSocket connected');
-        mapWS.send(JSON.stringify({
-            op: 'subscribe',
-            topic: '/map',
-            type: 'nav_msgs/OccupancyGrid',
-        }));
-        };
-
-        mapWS.onmessage = (event) => {
-        const now = Date.now();
-        if (now - lastMapUpdate.current < 500) return;
-        lastMapUpdate.current = now;
-        try {
-            const message = JSON.parse(event.data);
-            if (message?.msg?.info && message?.msg?.data) {
-            setMapData(message.msg);
-            }
-        } catch (err) {
-            console.error('❌ Map WS error:', err);
-        }
-        };
-
-        mapWS.onerror = (e) => console.error('Map socket error:', e.message);
-
-        // CONTROL SOCKET
-        const ctrlWS = new WebSocket(`ws://${ip}:9090`);
-        controlSocket.current = ctrlWS;
-
-        ctrlWS.onopen = () => console.log('🎮 Control WebSocket connected');
-        ctrlWS.onerror = (e) => console.error('Control socket error:', e.message);
+    const fetchIpAndConnect = async () => {
+      const ip = await AsyncStorage.getItem('robotIp');
+      if (ip) {
+        setRobotIp(ip);
+        ws.current = new WebSocket(`ws://${ip}:9090`);
+      }
     };
-
-    setupSockets();
-    return () => {
-        mapSocket.current?.close();
-        controlSocket.current?.close();
-    };
-    }, []); 
+    fetchIpAndConnect();
+    return () => ws.current?.close();
+  }, []);
 
   const handleStartMapping = () => {
     console.log(`🚀 Starting ${mappingMode} mapping`);
-    setIsMappingActive(true);
   };
 
   const handleStopMapping = () => {
     console.log('🛑 Stopping mapping');
-    setIsMappingActive(false);
   };
 
   const handleSaveMap = () => {
@@ -98,36 +51,22 @@ export default function MapScreen() {
     setSavedStatus(`Map saved as ${mapName}.pgm / .yaml`);
   };
 
-  const rawSendCommand = (linear: number, angular: number) => {
-    if (!isMappingActive) return;
-    if (!controlSocket.current || controlSocket.current.readyState !== WebSocket.OPEN) return;
-
-    const cmd = {
+  const sendCommand = (linear: number, angular: number) => {
+    if (!ws.current || ws.current.readyState !== WebSocket.OPEN) return;
+    ws.current.send(
+      JSON.stringify({
         op: 'publish',
         topic: '/cmd_vel',
         msg: {
-        header: { stamp: { sec: 0, nanosec: 0 }, frame_id: '' },
-        twist: {
+          header: { stamp: { sec: 0, nanosec: 0 }, frame_id: '' },
+          twist: {
             linear: { x: linear, y: 0, z: 0 },
             angular: { x: 0, y: 0, z: angular },
+          },
         },
-        },
-    };
-
-    console.log("🚀 Sending command:", {
-        linear,
-        angular,
-        wsState: controlSocket.current.readyState,
-    });
-
-    controlSocket.current.send(JSON.stringify(cmd));
-    };
-
-    // Debounce with 100ms delay (adjust as needed)
-    const sendCommand = useCallback(
-    debounce(rawSendCommand, 100, { leading: true, trailing: true }),
-    [isMappingActive, ws.current]
+      })
     );
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -183,7 +122,6 @@ export default function MapScreen() {
         </Modal>
 
         <View style={styles.mapViewBox}>
-          <MapCanvas map={mapData} />
         </View>
 
         {mappingMode === 'manual' ? (
