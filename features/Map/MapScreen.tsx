@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,13 +9,13 @@ import {
   Modal,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import TcpSocket from 'react-native-tcp-socket';
-import debounce from 'lodash.debounce';
-
 import HeaderBar from '@/components/HeaderBar';
 import ButtonControl from '@/components/ButtonControl';
 import JoystickControl from '@/components/JoystickControl';
-import MapCanvas from '@/components/MapCanvas';
+import MapCanvas from '@/components/MapCanvas'; 
+import debounce from 'lodash.debounce';
+import { useCallback } from 'react';
+
 
 export default function MapScreen() {
   const [mappingMode, setMappingMode] = useState<'auto' | 'manual'>('manual');
@@ -24,54 +24,72 @@ export default function MapScreen() {
   const [savedStatus, setSavedStatus] = useState('');
   const [showModeDropdown, setShowModeDropdown] = useState(false);
   const [showControlDropdown, setShowControlDropdown] = useState(false);
+  const [robotIp, setRobotIp] = useState<string | null>(null);
+  const ws = useRef<WebSocket | null>(null);
   const [mapData, setMapData] = useState(null);
   const [isMappingActive, setIsMappingActive] = useState(true);
-  const mapSocket = useRef(null);
-  const cmdSocket = useRef(null);
+  const lastMapUpdate = useRef(Date.now());
+  const mapSocket = useRef<WebSocket | null>(null);
+  const controlSocket = useRef<WebSocket | null>(null);
+
 
   useEffect(() => {
     const setupSockets = async () => {
-      const ip = await AsyncStorage.getItem('robotIp');
-      if (!ip) return;
+        const ip = await AsyncStorage.getItem('robotIp');
+        if (!ip) return;
 
-      // Connect to Map server
-      mapSocket.current = TcpSocket.createConnection({ port: 9091, host: ip }, () => {
-        console.log('🧭 Connected to map server');
-      });
-      mapSocket.current.on('data', (data) => {
+        // MAP SOCKET
+        const mapWS = new WebSocket(`ws://${ip}:9090`);
+        mapSocket.current = mapWS;
+
+        mapWS.onopen = () => {
+        console.log('🧭 Map WebSocket connected');
+        mapWS.send(JSON.stringify({
+            op: 'subscribe',
+            topic: '/map',
+            type: 'nav_msgs/OccupancyGrid',
+        }));
+        };
+
+        mapWS.onmessage = (event) => {
+        const now = Date.now();
+        if (now - lastMapUpdate.current < 500) return;
+        lastMapUpdate.current = now;
         try {
-          const parsed = JSON.parse(data.toString());
-          if (parsed?.info && parsed?.data) {
-            setMapData(parsed);
-          }
+            const message = JSON.parse(event.data);
+            if (message?.msg?.info && message?.msg?.data) {
+            setMapData(message.msg);
+            }
         } catch (err) {
-          console.error('❌ Error parsing map data:', err);
+            console.error('❌ Map WS error:', err);
         }
-      });
-      mapSocket.current.on('error', (err) => console.error('Map socket error:', err.message));
+        };
 
-      // Connect to Command server
-      cmdSocket.current = TcpSocket.createConnection({ port: 9092, host: ip }, () => {
-        console.log('🎮 Connected to command server');
-      });
-      cmdSocket.current.on('error', (err) => console.error('Cmd socket error:', err.message));
+        mapWS.onerror = (e) => console.error('Map socket error:', e.message);
+
+        // CONTROL SOCKET
+        const ctrlWS = new WebSocket(`ws://${ip}:9090`);
+        controlSocket.current = ctrlWS;
+
+        ctrlWS.onopen = () => console.log('🎮 Control WebSocket connected');
+        ctrlWS.onerror = (e) => console.error('Control socket error:', e.message);
     };
 
     setupSockets();
     return () => {
-      mapSocket.current?.destroy();
-      cmdSocket.current?.destroy();
+        mapSocket.current?.close();
+        controlSocket.current?.close();
     };
-  }, []);
+    }, []); 
 
   const handleStartMapping = () => {
+    console.log(`🚀 Starting ${mappingMode} mapping`);
     setIsMappingActive(true);
-    console.log(`🚀 Started ${mappingMode} mapping`);
   };
 
   const handleStopMapping = () => {
+    console.log('🛑 Stopping mapping');
     setIsMappingActive(false);
-    console.log('🛑 Stopped mapping');
   };
 
   const handleSaveMap = () => {
@@ -81,28 +99,53 @@ export default function MapScreen() {
   };
 
   const rawSendCommand = (linear: number, angular: number) => {
-    if (!isMappingActive || !cmdSocket.current?.destroyed) {
-      const cmd = JSON.stringify({ linear, angular });
-      cmdSocket.current.write(cmd + '\n');
-    }
-  };
+    if (!isMappingActive) return;
+    if (!controlSocket.current || controlSocket.current.readyState !== WebSocket.OPEN) return;
 
-  const sendCommand = useCallback(
+    const cmd = {
+        op: 'publish',
+        topic: '/cmd_vel',
+        msg: {
+        header: { stamp: { sec: 0, nanosec: 0 }, frame_id: '' },
+        twist: {
+            linear: { x: linear, y: 0, z: 0 },
+            angular: { x: 0, y: 0, z: angular },
+        },
+        },
+    };
+
+    console.log("🚀 Sending command:", {
+        linear,
+        angular,
+        wsState: controlSocket.current.readyState,
+    });
+
+    controlSocket.current.send(JSON.stringify(cmd));
+    };
+
+    // Debounce with 100ms delay (adjust as needed)
+    const sendCommand = useCallback(
     debounce(rawSendCommand, 100, { leading: true, trailing: true }),
-    [isMappingActive]
-  );
+    [isMappingActive, ws.current]
+    );
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <HeaderBar title="🗺️ Mapping Station" onRefresh={() => {}} />
+      <HeaderBar title="🗺️ Mapping Station" ws={ws.current} onRefresh={() => {}} />
       <View style={styles.container}>
         <View style={styles.topRow}>
           <View style={styles.modeSection}>
             <Text style={styles.label}>Mode</Text>
-            <TouchableOpacity style={styles.dropdownButton} onPress={() => setShowModeDropdown(true)}>
-              <Text style={styles.dropdownText}>{mappingMode === 'manual' ? 'Manual' : 'Auto'} ▼</Text>
+            <TouchableOpacity
+              style={styles.dropdownButton}
+              onPress={() => setShowModeDropdown(true)}
+            >
+              <Text style={styles.dropdownText}>
+                {mappingMode === 'manual' ? 'Manual' : 'Auto'} ▼
+              </Text>
             </TouchableOpacity>
           </View>
+
           <View style={styles.nameSection}>
             <Text style={styles.label}>Map Name</Text>
             <TextInput
@@ -116,7 +159,10 @@ export default function MapScreen() {
         </View>
 
         <Modal visible={showModeDropdown} transparent animationType="fade">
-          <TouchableOpacity style={styles.modalOverlay} onPress={() => setShowModeDropdown(false)}>
+          <TouchableOpacity
+            style={styles.modalOverlay}
+            onPress={() => setShowModeDropdown(false)}
+          >
             <View style={styles.modalContent}>
               {['manual', 'auto'].map((mode) => (
                 <TouchableOpacity
@@ -127,7 +173,9 @@ export default function MapScreen() {
                     setShowModeDropdown(false);
                   }}
                 >
-                  <Text style={styles.modalItemText}>{mode === 'manual' ? 'Manual' : 'Auto'}</Text>
+                  <Text style={styles.modalItemText}>
+                    {mode === 'manual' ? 'Manual' : 'Auto'}
+                  </Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -142,13 +190,21 @@ export default function MapScreen() {
           <>
             <View style={styles.controlDropdownWrapper}>
               <Text style={styles.label}>Control Type</Text>
-              <TouchableOpacity style={[styles.dropdownButton, { width: 180 }]} onPress={() => setShowControlDropdown(true)}>
-                <Text style={styles.dropdownText}>{controlMode === 'buttons' ? 'Button Control' : 'Joystick Control'} ▼</Text>
+              <TouchableOpacity
+                style={[styles.dropdownButton, { width: 180 }]}
+                onPress={() => setShowControlDropdown(true)}
+              >
+                <Text style={styles.dropdownText}>
+                  {controlMode === 'buttons' ? 'Button Control' : 'Joystick Control'} ▼
+                </Text>
               </TouchableOpacity>
             </View>
 
             <Modal visible={showControlDropdown} transparent animationType="fade">
-              <TouchableOpacity style={styles.modalOverlay} onPress={() => setShowControlDropdown(false)}>
+              <TouchableOpacity
+                style={styles.modalOverlay}
+                onPress={() => setShowControlDropdown(false)}
+              >
                 <View style={styles.modalContent}>
                   {['buttons', 'joystick'].map((mode) => (
                     <TouchableOpacity
@@ -159,7 +215,9 @@ export default function MapScreen() {
                         setShowControlDropdown(false);
                       }}
                     >
-                      <Text style={styles.modalItemText}>{mode === 'buttons' ? 'Button Control' : 'Joystick Control'}</Text>
+                      <Text style={styles.modalItemText}>
+                        {mode === 'buttons' ? 'Button Control' : 'Joystick Control'}
+                      </Text>
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -168,9 +226,19 @@ export default function MapScreen() {
 
             <View style={styles.manualControlArea}>
               {controlMode === 'buttons' ? (
-                <ButtonControl linearSpeed={0.5} angularSpeed={1.0} sendCommand={sendCommand} enabled={true} />
+                <ButtonControl
+                  linearSpeed={0.5}
+                  angularSpeed={1.0}
+                  sendCommand={sendCommand}
+                  enabled={true}
+                />
               ) : (
-                <JoystickControl ws={null} linearSpeed={0.5} angularSpeed={1.0} enabled={true} sendCommand={sendCommand} />
+                <JoystickControl
+                  ws={ws}
+                  linearSpeed={0.5}
+                  angularSpeed={1.0}
+                  enabled={true}
+                />
               )}
             </View>
           </>
