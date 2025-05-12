@@ -1,15 +1,26 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function WheelStatus() {
   const [leftPos, setLeftPos] = useState<number | null>(null);
   const [rightPos, setRightPos] = useState<number | null>(null);
   const [leftVel, setLeftVel] = useState<number | null>(null);
   const [rightVel, setRightVel] = useState<number | null>(null);
+  const [robotIp, setRobotIp] = useState<string | null>(null);
   const ws = useRef<WebSocket | null>(null);
 
   useEffect(() => {
-    const robotIp = '192.168.8.173'; // Update with your TurtleBot IP
+    const fetchIp = async () => {
+      const ip = await AsyncStorage.getItem('robotIp');
+      if (ip) setRobotIp(ip);
+    };
+    fetchIp();
+  }, []);
+
+  useEffect(() => {
+    if (!robotIp) return;
+
     ws.current = new WebSocket(`ws://${robotIp}:9090`);
 
     ws.current.onopen = () => {
@@ -41,7 +52,7 @@ export default function WheelStatus() {
     };
 
     return () => ws.current?.close();
-  }, []);
+  }, [robotIp]);
 
   return (
     <View style={styles.container}>
@@ -61,7 +72,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 10,
     height: 120,
-    },
+  },
   header: {
     color: '#00ffcc',
     fontSize: 16,

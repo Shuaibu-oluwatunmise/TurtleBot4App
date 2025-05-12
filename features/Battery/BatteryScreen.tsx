@@ -11,6 +11,7 @@ import {
   Platform,
   UIManager,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AnimatedCircularProgress } from 'react-native-circular-progress';
 import { LineChart } from 'react-native-chart-kit';
 import HeaderBar from '@/components/HeaderBar';
@@ -20,6 +21,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 }
 
 export default function BatteryScreen() {
+  const [robotIp, setRobotIp] = useState<string | null>(null);
   const [battery, setBattery] = useState<number | null>(null);
   const [voltage, setVoltage] = useState<number | null>(null);
   const [current, setCurrent] = useState<number | null>(null);
@@ -29,9 +31,27 @@ export default function BatteryScreen() {
   const lastRecorded = useRef<number | null>(null);
   const ws = useRef<WebSocket | null>(null);
 
-  const connectWebSocket = () => {
-    const robotIp = '192.168.8.173';
-    ws.current = new WebSocket(`ws://${robotIp}:9090`);
+  useEffect(() => {
+    const fetchIpAndConnect = async () => {
+      const ip = await AsyncStorage.getItem('robotIp');
+      if (ip) {
+        setRobotIp(ip);
+      } else {
+        console.warn('No IP address stored. Please log in again.');
+      }
+    };
+    fetchIpAndConnect();
+  }, []);
+
+  useEffect(() => {
+    if (robotIp) {
+      connectWebSocket(robotIp);
+      return () => ws.current?.close();
+    }
+  }, [robotIp]);
+
+  const connectWebSocket = (ip: string) => {
+    ws.current = new WebSocket(`ws://${ip}:9090`);
 
     ws.current.onopen = () => {
       console.log('✅ Connected to ROSBridge');
@@ -58,7 +78,7 @@ export default function BatteryScreen() {
 
         if (
           lastRecorded.current === null ||
-          Math.abs(rounded - lastRecorded.current) >= 20
+          Math.abs(rounded - lastRecorded.current) >= 1
         ) {
           setBatteryHistory((prev) => [...prev.slice(-29), rounded]);
           lastRecorded.current = rounded;
@@ -87,11 +107,6 @@ export default function BatteryScreen() {
     };
   };
 
-  useEffect(() => {
-    connectWebSocket();
-    return () => ws.current?.close();
-  }, []);
-
   const getGaugeColor = (level: number | null) => {
     if (level === null) return '#555';
     if (level >= 60) return '#00ff88';
@@ -106,7 +121,7 @@ export default function BatteryScreen() {
         ws={ws.current}
         onRefresh={() => {
           ws.current?.close();
-          connectWebSocket();
+          if (robotIp) connectWebSocket(robotIp);
         }}
       />
 

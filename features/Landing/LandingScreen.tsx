@@ -37,7 +37,7 @@ export default function LandingScreen() {
   return (
     <Pressable
       style={styles.container}
-      onPress={() => navigation.navigate('Menu')}
+      onPress={() => navigation.navigate('IpLogin')}
     >
       <Animated.Image
         source={require('@/assets/images/turtleLogo.png')} // make sure this path is correct

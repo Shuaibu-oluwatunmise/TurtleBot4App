@@ -1,14 +1,25 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function LiveTelemetry() {
   const [position, setPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [yaw, setYaw] = useState<number>(0);
   const [direction, setDirection] = useState<string>('–');
+  const [robotIp, setRobotIp] = useState<string | null>(null);
   const ws = useRef<WebSocket | null>(null);
 
   useEffect(() => {
-    const robotIp = '192.168.8.173'; // Change to match your TurtleBot IP
+    const fetchIp = async () => {
+      const ip = await AsyncStorage.getItem('robotIp');
+      if (ip) setRobotIp(ip);
+    };
+    fetchIp();
+  }, []);
+
+  useEffect(() => {
+    if (!robotIp) return;
+
     ws.current = new WebSocket(`ws://${robotIp}:9090`);
 
     ws.current.onopen = () => {
@@ -50,7 +61,7 @@ export default function LiveTelemetry() {
     };
 
     return () => ws.current?.close();
-  }, []);
+  }, [robotIp]);
 
   return (
     <View style={styles.container}>

@@ -1,10 +1,13 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable, Modal, TouchableOpacity, SafeAreaView, ScrollView  } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Modal, TouchableOpacity, SafeAreaView, ScrollView } from 'react-native';
 import Slider from '@react-native-community/slider';
-import JoystickControl from './JoystickControl';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import JoystickControl from '@/components/JoystickControl';
 import LiveTelemetry from '@/components/LiveTelemetry';
 import HeaderBar from '@/components/HeaderBar';
 import WheelStatus from '@/components/WheelStatus';
+import ButtonControl from '@/components/ButtonControl'; 
+
 
 const DROPDOWN_OPTIONS = {
   mode: [
@@ -20,6 +23,7 @@ const DROPDOWN_OPTIONS = {
 
 export default function TeleopScreen() {
   const ws = useRef<WebSocket | null>(null);
+  const [robotIp, setRobotIp] = useState<string | null>(null);
   const [mode, setMode] = useState<'buttons' | 'joystick'>('buttons');
   const [linearSpeed, setLinearSpeed] = useState(0.5);
   const [angularSpeed, setAngularSpeed] = useState(1.0);
@@ -27,9 +31,8 @@ export default function TeleopScreen() {
   const [showModeDropdown, setShowModeDropdown] = useState(false);
   const [showSpeedDropdown, setShowSpeedDropdown] = useState(false);
 
-  const connectWebSocket = () => {
-    const robotIp = '192.168.8.173';
-    ws.current = new WebSocket(`ws://${robotIp}:9090`);
+  const connectWebSocket = (ip: string) => {
+    ws.current = new WebSocket(`ws://${ip}:9090`);
   };
 
   const sendCommand = (linear: number, angular: number) => {
@@ -50,9 +53,23 @@ export default function TeleopScreen() {
   };
 
   useEffect(() => {
-    connectWebSocket();
-    return () => ws.current?.close();
+    const fetchIpAndConnect = async () => {
+      const ip = await AsyncStorage.getItem('robotIp');
+      if (ip) {
+        setRobotIp(ip);
+      } else {
+        console.warn('No IP address found in storage.');
+      }
+    };
+    fetchIpAndConnect();
   }, []);
+
+  useEffect(() => {
+    if (robotIp) {
+      connectWebSocket(robotIp);
+      return () => ws.current?.close();
+    }
+  }, [robotIp]);
 
   const moveInterval = useRef<NodeJS.Timeout | null>(null);
 
@@ -71,15 +88,15 @@ export default function TeleopScreen() {
   };
 
   return (
-    <SafeAreaView  style={styles.safeArea}>
-        <HeaderBar
-            title="Teleoperation"
-            ws={ws.current}
-            onRefresh={() => {
-            ws.current?.close();
-            connectWebSocket();
-            }}
-        />
+    <SafeAreaView style={styles.safeArea}>
+      <HeaderBar
+        title="Teleoperation"
+        ws={ws.current}
+        onRefresh={() => {
+          ws.current?.close();
+          if (robotIp) connectWebSocket(robotIp);
+        }}
+      />
         <View style={styles.scrollContainer}>
             <View style={styles.InfoArea}>
                 <Text style={styles.sectionTitle}>Live Info</Text>
@@ -156,51 +173,23 @@ export default function TeleopScreen() {
                 </Modal>
 
                 <View style={styles.controlSection}>
-                <Text style={styles.modeText}>{mode === 'buttons' ? 'Button Control' : 'Joystick Control'}</Text>
-                <View style={styles.controlArea}>
-                    {mode === 'buttons' ? (
-                    <View style={styles.controlPad}>
-                        <View style={styles.buttonRow}>
-                        <Pressable style={styles.arrowButton} onPressIn={() => handlePressIn(linearSpeed, angularSpeed)} onPressOut={handlePressOut}>
-                            <Text style={styles.arrowText}>↖️</Text>
-                        </Pressable>
-                        <Pressable style={styles.arrowButton} onPressIn={() => handlePressIn(linearSpeed, 0)} onPressOut={handlePressOut}>
-                            <Text style={styles.arrowText}>⬆️</Text>
-                        </Pressable>
-                        <Pressable style={styles.arrowButton} onPressIn={() => handlePressIn(linearSpeed, -angularSpeed)} onPressOut={handlePressOut}>
-                            <Text style={styles.arrowText}>↗️</Text>
-                        </Pressable>
-                        </View>
-                    
-                        <View style={styles.buttonRow}>
-                        <Pressable style={styles.arrowButton} onPressIn={() => handlePressIn(0, angularSpeed)} onPressOut={handlePressOut}>
-                            <Text style={styles.arrowText}>⬅️</Text>
-                        </Pressable>
-                        <Pressable style={[styles.arrowButton, { backgroundColor: '#505050' }]} onPressIn={() => sendCommand(0, 0)} onPressOut={handlePressOut}>
-                            <Text style={styles.arrowText}>⛔</Text>
-                        </Pressable>
-                        <Pressable style={styles.arrowButton} onPressIn={() => handlePressIn(0, -angularSpeed)} onPressOut={handlePressOut}>
-                            <Text style={styles.arrowText}>➡️</Text>
-                        </Pressable>
-                        </View>
-                    
-                        <View style={styles.buttonRow}>
-                        <Pressable style={styles.arrowButton} onPressIn={() => handlePressIn(-linearSpeed, angularSpeed)} onPressOut={handlePressOut}>
-                            <Text style={styles.arrowText}>↙️</Text>
-                        </Pressable>
-                        <Pressable style={styles.arrowButton} onPressIn={() => handlePressIn(-linearSpeed, 0)} onPressOut={handlePressOut}>
-                            <Text style={styles.arrowText}>⬇️</Text>
-                        </Pressable>
-                        <Pressable style={styles.arrowButton} onPressIn={() => handlePressIn(-linearSpeed, -angularSpeed)} onPressOut={handlePressOut}>
-                            <Text style={styles.arrowText}>↘️</Text>
-                        </Pressable>
-                        </View>
+                  <Text style={styles.modeText}>{mode === 'buttons' ? 'Button Control' : 'Joystick Control'}</Text>
+                  <View style={styles.controlArea}>
+                      {mode === 'buttons' ? (
+                        <ButtonControl
+                          linearSpeed={linearSpeed}
+                          angularSpeed={angularSpeed}
+                          sendCommand={sendCommand}
+                          enabled={enabled}
+                        />
+                      ) : (
+                      <JoystickControl 
+                        ws={ws} linearSpeed={linearSpeed} 
+                        angularSpeed={angularSpeed} 
+                        enabled={enabled} 
+                      />
+                      )}
                   </View>
-                  
-                    ) : (
-                    <JoystickControl ws={ws} linearSpeed={linearSpeed} angularSpeed={angularSpeed} enabled={enabled} />
-                    )}
-                </View>
                 </View>
 
                 <View style={styles.sliderContainer}>
