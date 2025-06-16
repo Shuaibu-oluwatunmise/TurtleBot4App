@@ -8,7 +8,9 @@ import MenuScreen from '@/features/Menu/MenuScreen';
 import BatteryScreen from '@/features/Battery/BatteryScreen';
 import TeleopScreen from '@/features/Teleop/TeleopScreen';
 import MapScreen from '@/features/Map/MapScreen';
+import MapGalleryScreen from './features/Map/ViewMapScreen';
 import 'react-native-gesture-handler';
+import FullGalleryScreen from './components/FullGalleryScreen';
 
 export type RootStackParamList = {
   Landing: undefined;
@@ -32,6 +34,8 @@ export default function App() {
           <Stack.Screen name="Battery" component={BatteryScreen} />
           <Stack.Screen name="Teleop" component={TeleopScreen} />
           <Stack.Screen name="Map" component={MapScreen} />
+          <Stack.Screen name="MapGallery" component={MapGalleryScreen} />
+          <Stack.Screen name="FullGallery" component={FullGalleryScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </GestureHandlerRootView>

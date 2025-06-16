@@ -33,7 +33,11 @@ export default function MenuScreen() {
         </Pressable>
 
         <Pressable style={styles.button} onPress={() => navigation.navigate('Map')}>
-          <Text style={styles.buttonText}>🗺️ Map</Text>
+          <Text style={styles.buttonText}>🗺️Create Maps</Text>
+        </Pressable>
+
+        <Pressable style={styles.button} onPress={() => navigation.navigate('MapGallery')}>
+          <Text style={styles.buttonText}>🖼️ View Maps</Text>
         </Pressable>
 
         <Pressable style={styles.button} onPress={handleComingSoon}>

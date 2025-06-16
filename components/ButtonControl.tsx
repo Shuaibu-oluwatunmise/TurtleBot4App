@@ -1,15 +1,21 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef } from 'react';
 import { View, Pressable, Text, StyleSheet } from 'react-native';
 
 interface ButtonControlProps {
+  ws: React.MutableRefObject<WebSocket | null>;
   linearSpeed: number;
   angularSpeed: number;
-  sendCommand: (linear: number, angular: number) => void;
   enabled: boolean;
 }
 
-export default function ButtonControl({ linearSpeed, angularSpeed, sendCommand, enabled }: ButtonControlProps) {
+export default function ButtonControl({ ws, linearSpeed, angularSpeed, enabled }: ButtonControlProps) {
   const moveInterval = useRef<NodeJS.Timeout | null>(null);
+
+  const sendCommand = (linear: number, angular: number) => {
+    if (!enabled || !ws.current || ws.current.readyState !== WebSocket.OPEN) return;
+
+    ws.current.send(JSON.stringify({ linear, angular }));
+  };
 
   const handlePressIn = (linear: number, angular: number) => {
     moveInterval.current = setInterval(() => sendCommand(linear, angular), 100);

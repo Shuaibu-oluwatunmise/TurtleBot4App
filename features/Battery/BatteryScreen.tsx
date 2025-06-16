@@ -51,21 +51,15 @@ export default function BatteryScreen() {
   }, [robotIp]);
 
   const connectWebSocket = (ip: string) => {
-    ws.current = new WebSocket(`ws://${ip}:9090`);
+    const topicPort = 9094; // specific to /battery_state via multiplexer
+    ws.current = new WebSocket(`ws://${ip}:${topicPort}`);
 
     ws.current.onopen = () => {
-      console.log('✅ Connected to ROSBridge');
-      ws.current?.send(
-        JSON.stringify({
-          op: 'subscribe',
-          topic: '/battery_state',
-        })
-      );
+      console.log('✅ Connected to multiplexer /battery_state');
     };
 
     ws.current.onmessage = (e) => {
-      const msg = JSON.parse(e.data);
-      const data = msg.msg;
+      const data = JSON.parse(e.data);
       if (!data) return;
 
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -75,7 +69,6 @@ export default function BatteryScreen() {
         setBattery(percentage);
 
         const rounded = Math.round(percentage);
-
         if (
           lastRecorded.current === null ||
           Math.abs(rounded - lastRecorded.current) >= 1

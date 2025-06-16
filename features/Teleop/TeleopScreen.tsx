@@ -1,13 +1,14 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable, Modal, TouchableOpacity, SafeAreaView, ScrollView } from 'react-native';
+import {
+  View, Text, StyleSheet, Pressable, Modal, TouchableOpacity, SafeAreaView,
+} from 'react-native';
 import Slider from '@react-native-community/slider';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import JoystickControl from '@/components/JoystickControl';
 import LiveTelemetry from '@/components/LiveTelemetry';
 import HeaderBar from '@/components/HeaderBar';
 import WheelStatus from '@/components/WheelStatus';
-import ButtonControl from '@/components/ButtonControl'; 
-
+import ButtonControl from '@/components/ButtonControl';
 
 const DROPDOWN_OPTIONS = {
   mode: [
@@ -32,24 +33,7 @@ export default function TeleopScreen() {
   const [showSpeedDropdown, setShowSpeedDropdown] = useState(false);
 
   const connectWebSocket = (ip: string) => {
-    ws.current = new WebSocket(`ws://${ip}:9090`);
-  };
-
-  const sendCommand = (linear: number, angular: number) => {
-    if (!enabled || !ws.current || ws.current.readyState !== WebSocket.OPEN) return;
-    ws.current.send(
-      JSON.stringify({
-        op: 'publish',
-        topic: '/cmd_vel',
-        msg: {
-          header: { stamp: { sec: 0, nanosec: 0 }, frame_id: '' },
-          twist: {
-            linear: { x: linear, y: 0, z: 0 },
-            angular: { x: 0, y: 0, z: angular },
-          },
-        },
-      })
-    );
+    ws.current = new WebSocket(`ws://${ip}:9092`);
   };
 
   useEffect(() => {
@@ -71,17 +55,6 @@ export default function TeleopScreen() {
     }
   }, [robotIp]);
 
-  const moveInterval = useRef<NodeJS.Timeout | null>(null);
-
-  const handlePressIn = (linear: number, angular: number) => {
-    moveInterval.current = setInterval(() => sendCommand(linear, angular), 100);
-  };
-
-  const handlePressOut = () => {
-    if (moveInterval.current) clearInterval(moveInterval.current);
-    sendCommand(0, 0);
-  };
-
   const applyPreset = (linear: number, angular: number) => {
     setLinearSpeed(linear);
     setAngularSpeed(angular);
@@ -97,129 +70,133 @@ export default function TeleopScreen() {
           if (robotIp) connectWebSocket(robotIp);
         }}
       />
-        <View style={styles.scrollContainer}>
-            <View style={styles.InfoArea}>
-                <Text style={styles.sectionTitle}>Live Info</Text>
-                <View style={styles.infoSection}>
-                <LiveTelemetry />
-                <WheelStatus />
-                </View>
+      <View style={styles.scrollContainer}>
+        <View style={styles.InfoArea}>
+          <Text style={styles.sectionTitle}>Live Info</Text>
+          <View style={styles.infoSection}>
+            <LiveTelemetry />
+            <WheelStatus />
+          </View>
+        </View>
+
+        <View style={styles.EntireControlArea}>
+          <Text style={styles.sectionTitle}>Control Panel</Text>
+          <View style={styles.controlBar}>
+            <View style={styles.dropdownContainer}>
+              <Text style={styles.label}>Mode</Text>
+              <TouchableOpacity onPress={() => setShowModeDropdown(true)} style={styles.dropdownButton}>
+                <Text style={styles.dropdownText}>
+                  {mode === 'buttons' ? 'Button Control' : 'Joystick Control'} ▼
+                </Text>
+              </TouchableOpacity>
             </View>
 
-            <View style={styles.EntireControlArea}>
-                <Text style={styles.sectionTitle}>Control Panel</Text>
-                <View style={styles.controlBar}>
-                <View style={styles.dropdownContainer}>
-                    <Text style={styles.label}>Mode</Text>
-                    <TouchableOpacity onPress={() => setShowModeDropdown(true)} style={styles.dropdownButton}>
-                    <Text style={styles.dropdownText}>{mode === 'buttons' ? 'Button Control' : 'Joystick Control'} ▼</Text>
-                    </TouchableOpacity>
-                </View>
+            <Pressable
+              style={[styles.toggleButton, { backgroundColor: enabled ? '#505050' : '#040404' }]}
+              onPress={() => setEnabled(!enabled)}
+            >
+              <Text style={styles.toggleText}>{enabled ? 'Disable' : 'Enable'}</Text>
+            </Pressable>
 
-                <Pressable
-                    style={[styles.toggleButton, { backgroundColor: enabled ? '#505050' : '#040404' }]}
-                    onPress={() => setEnabled(!enabled)}
-                >
-                    <Text style={styles.toggleText}>{enabled ? 'Disable' : 'Enable'}</Text>
-                </Pressable>
-
-                <View style={styles.dropdownContainer}>
-                    <Text style={styles.label}>Preset Speed</Text>
-                    <TouchableOpacity onPress={() => setShowSpeedDropdown(true)} style={styles.dropdownButton}>
-                    <Text style={styles.dropdownText}>
-                        {linearSpeed === 0.2 ? 'Slow' : linearSpeed === 0.5 ? 'Normal' : 'Fast'} ▼
-                    </Text>
-                    </TouchableOpacity>
-                </View>
-                </View>
-
-                <Modal visible={showModeDropdown} transparent animationType="fade">
-                <TouchableOpacity style={styles.modalOverlay} onPress={() => setShowModeDropdown(false)}>
-                    <View style={styles.modalContent}>
-                    {DROPDOWN_OPTIONS.mode.map((option) => (
-                        <Pressable
-                        key={option.value}
-                        style={styles.modalItem}
-                        onPress={() => {
-                            setMode(option.value as 'buttons' | 'joystick');
-                            setShowModeDropdown(false);
-                        }}
-                        >
-                        <Text style={styles.modalItemText}>{option.label}</Text>
-                        </Pressable>
-                    ))}
-                    </View>
-                </TouchableOpacity>
-                </Modal>
-
-                <Modal visible={showSpeedDropdown} transparent animationType="fade">
-                <TouchableOpacity style={styles.modalOverlay} onPress={() => setShowSpeedDropdown(false)}>
-                    <View style={styles.modalContent}>
-                    {DROPDOWN_OPTIONS.speed.map((option) => (
-                        <Pressable
-                        key={option.value}
-                        style={styles.modalItem}
-                        onPress={() => {
-                            const [lin, ang] = option.value.split('-').map(Number);
-                            applyPreset(lin, ang);
-                            setShowSpeedDropdown(false);
-                        }}
-                        >
-                        <Text style={styles.modalItemText}>{option.label}</Text>
-                        </Pressable>
-                    ))}
-                    </View>
-                </TouchableOpacity>
-                </Modal>
-
-                <View style={styles.controlSection}>
-                  <Text style={styles.modeText}>{mode === 'buttons' ? 'Button Control' : 'Joystick Control'}</Text>
-                  <View style={styles.controlArea}>
-                      {mode === 'buttons' ? (
-                        <ButtonControl
-                          linearSpeed={linearSpeed}
-                          angularSpeed={angularSpeed}
-                          sendCommand={sendCommand}
-                          enabled={enabled}
-                        />
-                      ) : (
-                      <JoystickControl 
-                        ws={ws} linearSpeed={linearSpeed} 
-                        angularSpeed={angularSpeed} 
-                        enabled={enabled} 
-                      />
-                      )}
-                  </View>
-                </View>
-
-                <View style={styles.sliderContainer}>
-                <Text style={styles.sliderLabel}>Linear Speed: {linearSpeed.toFixed(2)} m/s</Text>
-                <Slider
-                    style={styles.slider}
-                    minimumValue={0.1}
-                    maximumValue={1.0}
-                    value={linearSpeed}
-                    onValueChange={setLinearSpeed}
-                    minimumTrackTintColor="#00ffcc"
-                    maximumTrackTintColor="#555"
-                />
-
-                <Text style={styles.sliderLabel}>Angular Speed: {angularSpeed.toFixed(2)} rad/s</Text>
-                <Slider
-                    style={styles.slider}
-                    minimumValue={0.1}
-                    maximumValue={2.0}
-                    value={angularSpeed}
-                    onValueChange={setAngularSpeed}
-                    minimumTrackTintColor="#00ffcc"
-                    maximumTrackTintColor="#555"
-                />
-                </View>
+            <View style={styles.dropdownContainer}>
+              <Text style={styles.label}>Preset Speed</Text>
+              <TouchableOpacity onPress={() => setShowSpeedDropdown(true)} style={styles.dropdownButton}>
+                <Text style={styles.dropdownText}>
+                  {linearSpeed === 0.2 ? 'Slow' : linearSpeed === 0.5 ? 'Normal' : 'Fast'} ▼
+                </Text>
+              </TouchableOpacity>
             </View>
+          </View>
+
+          <Modal visible={showModeDropdown} transparent animationType="fade">
+            <TouchableOpacity style={styles.modalOverlay} onPress={() => setShowModeDropdown(false)}>
+              <View style={styles.modalContent}>
+                {DROPDOWN_OPTIONS.mode.map((option) => (
+                  <Pressable
+                    key={option.value}
+                    style={styles.modalItem}
+                    onPress={() => {
+                      setMode(option.value as 'buttons' | 'joystick');
+                      setShowModeDropdown(false);
+                    }}
+                  >
+                    <Text style={styles.modalItemText}>{option.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </TouchableOpacity>
+          </Modal>
+
+          <Modal visible={showSpeedDropdown} transparent animationType="fade">
+            <TouchableOpacity style={styles.modalOverlay} onPress={() => setShowSpeedDropdown(false)}>
+              <View style={styles.modalContent}>
+                {DROPDOWN_OPTIONS.speed.map((option) => (
+                  <Pressable
+                    key={option.value}
+                    style={styles.modalItem}
+                    onPress={() => {
+                      const [lin, ang] = option.value.split('-').map(Number);
+                      applyPreset(lin, ang);
+                      setShowSpeedDropdown(false);
+                    }}
+                  >
+                    <Text style={styles.modalItemText}>{option.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </TouchableOpacity>
+          </Modal>
+
+          <View style={styles.controlSection}>
+            <Text style={styles.modeText}>{mode === 'buttons' ? 'Button Control' : 'Joystick Control'}</Text>
+            <View style={styles.controlArea}>
+              {mode === 'buttons' ? (
+                <ButtonControl
+                  ws={ws}
+                  linearSpeed={linearSpeed}
+                  angularSpeed={angularSpeed}
+                  enabled={enabled}
+                />
+              ) : (
+                <JoystickControl
+                  ws={ws}
+                  linearSpeed={linearSpeed}
+                  angularSpeed={angularSpeed}
+                  enabled={enabled}
+                />
+              )}
+            </View>
+          </View>
+
+          <View style={styles.sliderContainer}>
+            <Text style={styles.sliderLabel}>Linear Speed: {linearSpeed.toFixed(2)} m/s</Text>
+            <Slider
+              style={styles.slider}
+              minimumValue={0.1}
+              maximumValue={1.0}
+              value={linearSpeed}
+              onValueChange={setLinearSpeed}
+              minimumTrackTintColor="#00ffcc"
+              maximumTrackTintColor="#555"
+            />
+
+            <Text style={styles.sliderLabel}>Angular Speed: {angularSpeed.toFixed(2)} rad/s</Text>
+            <Slider
+              style={styles.slider}
+              minimumValue={0.1}
+              maximumValue={2.0}
+              value={angularSpeed}
+              onValueChange={setAngularSpeed}
+              minimumTrackTintColor="#00ffcc"
+              maximumTrackTintColor="#555"
+            />
+          </View>
+        </View>
       </View>
-    </SafeAreaView >
+    </SafeAreaView>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: {

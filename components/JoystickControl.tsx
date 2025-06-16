@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { View, StyleSheet, Text, PanResponder, Animated } from 'react-native';
+import { View, StyleSheet, PanResponder, Animated } from 'react-native';
 
 interface Props {
   ws: React.MutableRefObject<WebSocket | null>;
@@ -14,24 +14,9 @@ export default function JoystickControl({ ws, linearSpeed, angularSpeed, enabled
   const pan = useRef(new Animated.ValueXY()).current;
 
   const sendCommand = (linear: number, angular: number) => {
-    if (!enabled) return;
-    if (!ws.current || ws.current.readyState !== WebSocket.OPEN) return;
-    ws.current.send(
-      JSON.stringify({
-        op: 'publish',
-        topic: '/cmd_vel',
-        msg: {
-          header: {
-            stamp: { sec: 0, nanosec: 0 },
-            frame_id: '',
-          },
-          twist: {
-            linear: { x: linear, y: 0, z: 0 },
-            angular: { x: 0, y: 0, z: angular },
-          },
-        },
-      })
-    );
+    if (!enabled || !ws.current || ws.current.readyState !== WebSocket.OPEN) return;
+
+    ws.current.send(JSON.stringify({ linear, angular }));
   };
 
   useEffect(() => {

@@ -6,62 +6,59 @@ export default function LiveTelemetry() {
   const [position, setPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [yaw, setYaw] = useState<number>(0);
   const [direction, setDirection] = useState<string>('–');
-  const [robotIp, setRobotIp] = useState<string | null>(null);
   const ws = useRef<WebSocket | null>(null);
 
   useEffect(() => {
-    const fetchIp = async () => {
+    const connectWebSocket = async () => {
       const ip = await AsyncStorage.getItem('robotIp');
-      if (ip) setRobotIp(ip);
+      if (!ip) return;
+
+      ws.current = new WebSocket(`ws://${ip}:9093`);
+
+      ws.current.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          const pos = data.pose?.pose?.position;
+          const ori = data.pose?.pose?.orientation;
+
+          if (pos && ori) {
+            setPosition({ x: pos.x, y: pos.y });
+
+            // Convert quaternion to yaw angle
+            const { x, y, z, w } = ori;
+            const siny_cosp = 2 * (w * z + x * y);
+            const cosy_cosp = 1 - 2 * (y * y + z * z);
+            const yawAngle = Math.atan2(siny_cosp, cosy_cosp);
+            const yawDeg = (yawAngle * 180) / Math.PI;
+            setYaw(yawDeg);
+
+            const dirs = ['North', 'North-East', 'East', 'South-East', 'South', 'South-West', 'West', 'North-West'];
+            const index = Math.round((yawDeg % 360) / 45) % 8;
+            setDirection(dirs[(index + 8) % 8]);
+          }
+        } catch (err) {
+          console.error('Failed to parse /odom message:', err);
+        }
+      };
+
+      ws.current.onerror = (err) => {
+        console.error('LiveTelemetry WebSocket error:', err.message);
+      };
+
+      ws.current.onclose = () => {
+        console.warn('LiveTelemetry WebSocket closed');
+      };
     };
-    fetchIp();
-  }, []);
 
-  useEffect(() => {
-    if (!robotIp) return;
+    connectWebSocket();
 
-    ws.current = new WebSocket(`ws://${robotIp}:9090`);
-
-    ws.current.onopen = () => {
-      ws.current?.send(
-        JSON.stringify({
-          op: 'subscribe',
-          topic: '/odom',
-        })
-      );
-    };
-
-    ws.current.onmessage = (e) => {
-      const msg = JSON.parse(e.data);
-      const data = msg.msg;
-      if (!data) return;
-
-      const pos = data.pose?.pose?.position;
-      const ori = data.pose?.pose?.orientation;
-
-      if (pos && ori) {
-        setPosition({ x: pos.x, y: pos.y });
-
-        // Calculate yaw from quaternion
-        const { x, y, z, w } = ori;
-        const siny_cosp = 2 * (w * z + x * y);
-        const cosy_cosp = 1 - 2 * (y * y + z * z);
-        const yawAngle = Math.atan2(siny_cosp, cosy_cosp);
-        const yawDeg = (yawAngle * 180) / Math.PI;
-        setYaw(yawDeg);
-
-        const dirs = ['North', 'North-East', 'East', 'South-East', 'South', 'South-West', 'West', 'NorthWest'];
-        const index = Math.round((yawDeg % 360) / 45) % 8;
-        setDirection(dirs[(index + 8) % 8]);
+    return () => {
+      if (ws.current) {
+        ws.current.close();
+        ws.current = null;
       }
     };
-
-    ws.current.onerror = (err) => {
-      console.error('Telemetry WebSocket error:', err.message);
-    };
-
-    return () => ws.current?.close();
-  }, [robotIp]);
+  }, []);
 
   return (
     <View style={styles.container}>
