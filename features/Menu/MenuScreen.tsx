@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, Pressable, StyleSheet, Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RootStackParamList } from '@/App';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Menu'>;
@@ -11,6 +12,11 @@ export default function MenuScreen() {
 
   const handleComingSoon = () => {
     Alert.alert('Coming Soon 🚧', 'This feature is under development.');
+  };
+
+  const handleLogout = async () => {
+    await AsyncStorage.removeItem('robotIp');
+    navigation.reset({ index: 0, routes: [{ name: 'Landing' }] });
   };
 
   return (
@@ -26,8 +32,12 @@ export default function MenuScreen() {
           <Text style={styles.buttonText}>📡 Teleop</Text>
         </Pressable>
 
-        <Pressable style={styles.button} onPress={handleComingSoon}>
-          <Text style={styles.buttonText}>📈 Diagnostics</Text>
+        <Pressable style={styles.button} onPress={() => navigation.navigate('Map')}>
+          <Text style={styles.buttonText}>🗺️Create Maps</Text>
+        </Pressable>
+
+        <Pressable style={styles.button} onPress={() => navigation.navigate('MapGallery')}>
+          <Text style={styles.buttonText}>🖼️ View Maps</Text>
         </Pressable>
 
         <Pressable style={styles.button} onPress={handleComingSoon}>
@@ -38,6 +48,10 @@ export default function MenuScreen() {
           <Text style={styles.buttonText}>🛠️ Settings</Text>
         </Pressable>
       </View>
+
+      <Pressable style={styles.logoutButton} onPress={handleLogout}>
+        <Text style={styles.logoutText}>🚪 Logout</Text>
+      </Pressable>
     </View>
   );
 }
@@ -60,4 +74,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   buttonText: { fontSize: 16, color: '#fff', textAlign: 'center' },
+  logoutButton: {
+    marginTop: 'auto',
+    marginBottom: 40,
+    backgroundColor: '#ff4444',
+    paddingVertical: 14,
+    paddingHorizontal: 30,
+    borderRadius: 12,
+  },
+  logoutText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
 });
