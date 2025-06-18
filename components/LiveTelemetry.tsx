@@ -20,6 +20,7 @@ export default function LiveTelemetry() {
           const data = JSON.parse(event.data);
           const pos = data.pose?.pose?.position;
           const ori = data.pose?.pose?.orientation;
+          // console.log("odom Data:", data);
 
           if (pos && ori) {
             setPosition({ x: pos.x, y: pos.y });

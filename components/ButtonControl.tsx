@@ -53,13 +53,13 @@ export default function ButtonControl({ ws, linearSpeed, angularSpeed, enabled }
       </View>
 
       <View style={styles.buttonRow}>
-        <Pressable style={styles.arrowButton} onPressIn={() => handlePressIn(-linearSpeed, angularSpeed)} onPressOut={handlePressOut}>
+        <Pressable style={styles.arrowButton} onPressIn={() => handlePressIn(-linearSpeed, -angularSpeed)} onPressOut={handlePressOut}>
           <Text style={styles.arrowText}>↙️</Text>
         </Pressable>
         <Pressable style={styles.arrowButton} onPressIn={() => handlePressIn(-linearSpeed, 0)} onPressOut={handlePressOut}>
           <Text style={styles.arrowText}>⬇️</Text>
         </Pressable>
-        <Pressable style={styles.arrowButton} onPressIn={() => handlePressIn(-linearSpeed, -angularSpeed)} onPressOut={handlePressOut}>
+        <Pressable style={styles.arrowButton} onPressIn={() => handlePressIn(-linearSpeed, angularSpeed)} onPressOut={handlePressOut}>
           <Text style={styles.arrowText}>↘️</Text>
         </Pressable>
       </View>
