@@ -25,6 +25,7 @@ export default function MapScreen() {
   const [showControlDropdown, setShowControlDropdown] = useState(false);
   const [robotIp, setRobotIp] = useState<string | null>(null);
   const [slamRunning, setSlamRunning] = useState(false);
+  const [autoMappingRunning, setAutoMappingRunning] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const slamSocket = useRef<WebSocket | null>(null);
   const autoMapSocket = useRef<WebSocket | null>(null);
@@ -107,6 +108,7 @@ export default function MapScreen() {
 
     console.log("📡 Sending Auto_Map command...");
     autoMapSocket.current.send("Auto_Map");
+    setAutoMappingRunning(true);
   };
 
   const handleStopAutoMapping = () => {
@@ -117,6 +119,7 @@ export default function MapScreen() {
 
     console.log("📡 Sending stop_auto_map command...");
     autoMapSocket.current.send("stop_auto_map");
+    setAutoMappingRunning(false);
   };
 
   const MainContent = (
@@ -162,7 +165,7 @@ export default function MapScreen() {
             </TouchableOpacity>
           </Modal>
 
-          <View style={styles.mapViewBox}><MapViewBox slamRunning={slamRunning} /></View>
+          <View style={styles.mapViewBox}><MapViewBox slamRunning={slamRunning || autoMappingRunning} /></View>
 
           {mappingMode === 'manual' ? (
             <>
