@@ -5,7 +5,7 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 from nav_msgs.msg import OccupancyGrid, Odometry
-from sensor_msgs.msg import BatteryState, JointState
+from sensor_msgs.msg import BatteryState, JointState, CompressedImage
 from geometry_msgs.msg import TwistStamped
 from rosidl_runtime_py import message_to_ordereddict
 import subprocess
@@ -20,6 +20,8 @@ import io
 from datetime import datetime
 from rclpy.action import ActionClient
 from nav2_msgs.action import NavigateToPose
+
+
 
 active_clients = {}
 latest_map = {"msg": None}
@@ -103,11 +105,24 @@ def make_auto_map_handler():
             print("🔌 Auto mapping client disconnected")
     return handler
 
+def make_camera_handler():
+    async def handler(websocket):
+        active_clients.setdefault('/camera', set()).add(websocket)
+        print("📸 Camera client connected")
+        try:
+            await websocket.wait_closed()
+        finally:
+            active_clients['/camera'].remove(websocket)
+            print("🔌 Camera client disconnected")
+    return handler
+
+
 def build_ros_message(msg_type, data: dict):
     msg = msg_type()
     for key, value in data.items():
         setattr(msg, key, value)
     return msg
+
 
 
 async def safe_broadcast(clients, message):
@@ -123,8 +138,8 @@ async def safe_broadcast(clients, message):
 
 
 class MultiplexerNode(Node):
-    def _init_(self, loop):
-        super()._init_('ros2_multiplexer')
+    def __init__(self, loop):
+        super().__init__('ros2_multiplexer')
         print("🧐 MultiplexerNode constructed")
         self.loop = loop
 
@@ -134,6 +149,28 @@ class MultiplexerNode(Node):
         self.create_subscription(Odometry, '/odom', self.make_callback('/odom'), 10)
         self.create_subscription(BatteryState, '/battery_state', self.make_callback('/battery_state'), 10)
         self.create_subscription(JointState, '/joint_states', self.make_callback('/joint_states'), 10)
+        self.create_subscription(CompressedImage, '/oakd/rgb/preview/image_raw/compressed',self.on_camera_image, 10)
+
+    def on_camera_image(self, msg):
+        clients = active_clients.get('/camera', set())
+        if not clients:
+            return
+
+        try:
+            img_bytes = msg.data  # raw JPEG
+            b64_image = base64.b64encode(img_bytes).decode('utf-8')
+
+            payload = json.dumps({
+                "type": "camera",
+                "image": b64_image
+            })
+
+            asyncio.run_coroutine_threadsafe(
+                safe_broadcast(clients, payload),
+                self.loop
+            )
+        except Exception as e:
+            self.get_logger().error(f"❌ Error in on_camera_image: {e}")
 
     def on_map_update(self, msg):
         latest_map["msg"] = msg
@@ -374,6 +411,8 @@ async def start_websocket_servers(node):
     await websockets.serve(make_image_broadcast_handler(), '0.0.0.0', 9096)
     await websockets.serve(make_saved_maps_handler(), '0.0.0.0', 9097)
     await websockets.serve(make_auto_map_handler(), '0.0.0.0', 9098)
+    await websockets.serve(make_camera_handler(), '0.0.0.0', 9100)
+
 
 
 
@@ -391,6 +430,6 @@ async def main():
     await asyncio.Future()
 
 
-if _name_ == '_main_':
+if __name__ == '__main__':
     rclpy.init()
     asyncio.run(main())

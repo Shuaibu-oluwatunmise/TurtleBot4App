@@ -15,6 +15,7 @@ import HeaderBar from '@/components/HeaderBar';
 import ButtonControl from '@/components/ButtonControl';
 import JoystickControl from '@/components/JoystickControl';
 import MapViewBox from '@/components/MapViewBox';
+import CameraViewBox from '@/components/CameraViewBox';
 
 export default function MapScreen() {
   const [mappingMode, setMappingMode] = useState<'auto' | 'manual'>('manual');
@@ -30,6 +31,8 @@ export default function MapScreen() {
   const slamSocket = useRef<WebSocket | null>(null);
   const autoMapSocket = useRef<WebSocket | null>(null);
   const ws = useRef<WebSocket | null>(null);
+  const [viewMode, setViewMode] = useState<'map' | 'camera'>('map');
+
 
   useEffect(() => {
     const showSub = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
@@ -87,8 +90,8 @@ export default function MapScreen() {
     setSlamRunning(!slamRunning);
   };
 
-  const handleStartMapping = () => console.log(`🚀 Starting ${mappingMode} mapping`);
-  const handleStopMapping = () => console.log('🛑 Stopping mapping');
+  // const handleStartMapping = () => console.log(`🚀 Starting ${mappingMode} mapping`);
+  // const handleStopMapping = () => console.log('🛑 Stopping mapping');
 
   const handleSaveMap = () => {
     if (!mapName || !slamSocket.current || slamSocket.current.readyState !== WebSocket.OPEN) {
@@ -144,6 +147,26 @@ export default function MapScreen() {
                 placeholderTextColor="#888"
               />
             </View>
+            <View style={{ flexDirection: 'column', marginTop: 10 }}>
+              <TouchableOpacity
+                style={[
+                  styles.toggleButton,
+                  viewMode === 'map' && { backgroundColor: '#00ffcc' }
+                ]}
+                onPress={() => setViewMode('map')}
+              >
+                <Text style={{ color: viewMode === 'map' ? '#000' : '#fff' }}>Map View</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.toggleButton,
+                  viewMode === 'camera' && { backgroundColor: '#00ffcc' }
+                ]}
+                onPress={() => setViewMode('camera')}
+              >
+                <Text style={{ color: viewMode === 'camera' ? '#000' : '#fff' }}>Camera View</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           <Modal visible={showModeDropdown} transparent animationType="fade">
@@ -165,7 +188,13 @@ export default function MapScreen() {
             </TouchableOpacity>
           </Modal>
 
-          <View style={styles.mapViewBox}><MapViewBox slamRunning={slamRunning || autoMappingRunning} /></View>
+          <View style={styles.mapViewBox}>
+            {viewMode === 'map' ? (
+              <MapViewBox slamRunning={slamRunning || autoMappingRunning} />
+            ) : (
+              <CameraViewBox robotIp={robotIp} />
+            )}
+          </View>
 
           {mappingMode === 'manual' ? (
             <>
@@ -268,6 +297,14 @@ const styles = StyleSheet.create({
   },
   nameSection: {
     flex: 2,
+  },
+  toggleButton: {
+    backgroundColor: '#333',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    marginHorizontal: 5,
+    marginBottom: 5,
   },
   controlDropdownWrapper: {
     flex:1,

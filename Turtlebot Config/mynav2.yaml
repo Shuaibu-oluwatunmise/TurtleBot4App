@@ -32,7 +32,7 @@ controller_server:
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
       required_movement_radius: 0.5
-      movement_time_allowance: 10.0
+      movement_time_allowance: 15.0
     general_goal_checker:
       stateful: true
       plugin: "nav2_controller::SimpleGoalChecker"
@@ -373,6 +373,7 @@ docking_server:
 lifecycle_manager:
   ros__parameters:
     autostart: true
+    bond_timeout: 10.0
     node_names:
       - controller_server
       - planner_server

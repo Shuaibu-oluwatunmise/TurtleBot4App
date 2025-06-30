@@ -1,158 +1,181 @@
-#!/usr/bin/env python3
-
 import rclpy
 from rclpy.node import Node
-from rclpy.action import ActionClient
-from nav_msgs.msg import OccupancyGrid
+from nav_msgs.msg import OccupancyGrid, Odometry
 from geometry_msgs.msg import PoseStamped
 from nav2_msgs.action import NavigateToPose
-from lifecycle_msgs.srv import GetState
-import numpy as np
+from rclpy.action import ActionClient
+from rclpy.duration import Duration
+from rclpy.qos import QoSProfile, QoSDurabilityPolicy
+import math
 import time
+from collections import deque
+
 
 class FrontierExplorer(Node):
     def _init_(self):
         super()._init_('frontier_explorer')
-        self.get_logger().info("🌍 Frontier Explorer node started")
 
-        # Variables for retry logic and edge exploration
-        self.failed_goal_attempts = 0
-        self.max_failed_goal_attempts = 3
-        self.goal_in_progress = False
-        self.subscription = self.create_subscription(
+        self.map_sub = self.create_subscription(
             OccupancyGrid,
             '/map',
             self.map_callback,
-            10
+            QoSProfile(depth=10, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
         )
+        self.odom_sub = self.create_subscription(Odometry, '/odom', self.odom_callback, 10)
+        self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
 
-        self.nav_action_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+        self.frontier_queue = deque()
         self.latest_map = None
-        self.goal_x = None  # Add this to store goal x-coordinate
-        self.goal_y = None  # Add this to store goal y-coordinate
+        self.latest_pose = None
+        self.last_pose = None
+        self.last_move_time = self.get_clock().now()
+        self.goal_handle = None
+        self.goal_retry_count = 0
+        self.blacklist = set()
+        self.stuck_spin_attempts = 0
+        self.spin_start_time = None
+        self.spin_duration_sec = 10
 
-        self.wait_for_nav2_server()
+        self.active_goal = None
 
-    def wait_for_nav2_server(self):
-        """ Wait for Nav2 action server """
-        self.get_logger().info("⏳ Waiting for Nav2 action server (navigate_to_pose)...")
+        self.timer = self.create_timer(2.0, self.control_loop)
 
-        while not self.nav_action_client.wait_for_server(timeout_sec=2.0):
-            self.get_logger().warn("🕒 Nav2 action server not ready. Retrying...")
+        self.get_logger().info("🌍 Frontier Explorer started")
+        self.wait_for_nav2()
+
+    def wait_for_nav2(self):
+        while not self.nav_client.wait_for_server(timeout_sec=1.0):
+            self.get_logger().info("⏳ Waiting for NavigateToPose action server...")
+        self.get_logger().info("✅ Nav2 action server ready")
 
     def map_callback(self, msg):
-        """ Callback to process the latest map """
-        self.get_logger().info("🗺 Map received")
         self.latest_map = msg
 
-        if not self.goal_in_progress:
-            self.find_and_navigate_to_frontier()
+    def odom_callback(self, msg):
+        self.latest_pose = msg.pose.pose
 
-    def find_and_navigate_to_frontier(self):
-        """ Find unexplored frontiers and navigate towards one """
-        if self.latest_map is None:
-            self.get_logger().warn("⚠ No map available for frontier detection")
+    def euclidean_dist(self, p1, p2):
+        return math.sqrt((p1.position.x - p2.position.x) ** 2 + (p1.position.y - p2.position.y) ** 2)
+
+    def control_loop(self):
+        if self.goal_handle or not self.latest_map or not self.latest_pose:
             return
 
-        width = self.latest_map.info.width
-        height = self.latest_map.info.height
-        data = np.array(self.latest_map.data).reshape((height, width))
+        now = self.get_clock().now()
+        if self.last_pose and self.euclidean_dist(self.latest_pose, self.last_pose) < 0.05:
+            if (now - self.last_move_time) > Duration(seconds=10):
+                self.get_logger().warn("🚫 Robot did not move. Attempting spin recovery...")
+                self.trigger_spin_recovery()
+                self.last_move_time = now
+                return
+        else:
+            self.last_move_time = now
 
-        frontier_cells = np.argwhere(data == -1)
-        if len(frontier_cells) == 0:
-            self.get_logger().info("✅ No unexplored frontiers found")
-            self.explore_edges()
-            return
+        self.last_pose = self.latest_pose
 
-        # Select the first frontier cell found
-        target_y, target_x = frontier_cells[0]
-        self.get_logger().info(f"🎯 Frontier found at ({target_x}, {target_y})")
+        if not self.frontier_queue:
+            self.find_new_frontiers()
 
-        origin = self.latest_map.info.origin.position
-        res = self.latest_map.info.resolution
-        goal_x = origin.x + target_x * res
-        goal_y = origin.y + target_y * res
+        while self.frontier_queue:
+            goal = self.frontier_queue.popleft()
+            if goal in self.blacklist:
+                continue
+            self.send_goal(goal)
+            break
 
-        self.send_navigation_goal(goal_x, goal_y)
+    def send_goal(self, goal):
+        goal_msg = NavigateToPose.Goal()
+        pose = PoseStamped()
+        pose.header.frame_id = 'map'
+        pose.header.stamp = self.get_clock().now().to_msg()
+        pose.pose.position.x = float(goal[0])
+        pose.pose.position.y = float(goal[1])
+        pose.pose.orientation.w = 1.0
+        goal_msg.pose = pose
 
-    def send_navigation_goal(self, x, y):
-        """ Send navigation goal to the robot """
-        self.goal_x = x  # Store goal coordinates
-        self.goal_y = y  # Store goal coordinates
-        goal = NavigateToPose.Goal()
-        goal.pose = PoseStamped()
-        goal.pose.header.frame_id = 'map'
-        goal.pose.header.stamp = self.get_clock().now().to_msg()
-        goal.pose.pose.position.x = float(x)
-        goal.pose.pose.position.y = float(y)
-        goal.pose.pose.orientation.w = 1.0
-
-        self.get_logger().info(f"📡 Sending goal to ({x:.2f}, {y:.2f})")
-        self.goal_in_progress = True
-        self.failed_goal_attempts = 0  # Reset failure counter on new goal
-
-        send_goal_future = self.nav_action_client.send_goal_async(goal)
-        send_goal_future.add_done_callback(self.goal_response_callback)
+        self.get_logger().info(f"📍 Sending goal to ({goal[0]:.2f}, {goal[1]:.2f})")
+        self.goal_future = self.nav_client.send_goal_async(goal_msg)
+        self.goal_future.add_done_callback(self.goal_response_callback)
+        self.active_goal = goal
 
     def goal_response_callback(self, future):
-        """ Callback for goal response """
         goal_handle = future.result()
         if not goal_handle.accepted:
             self.get_logger().error("❌ Goal rejected")
-            self.retry_navigation(self.goal_x, self.goal_y)
+            self.active_goal = None
             return
 
         self.get_logger().info("✅ Goal accepted")
-        result_future = goal_handle.get_result_async()
-        result_future.add_done_callback(self.get_result_callback)
+        self.goal_handle = goal_handle
+        goal_result_future = goal_handle.get_result_async()
+        goal_result_future.add_done_callback(self.goal_result_callback)
 
-    def get_result_callback(self, future):
-        """ Callback when goal is completed or failed """
+    def goal_result_callback(self, future):
         result = future.result().result
-        self.get_logger().info(f"🧭 Goal finished with result: {result}")
-        if result.error_code != 0:
-            self.failed_goal_attempts += 1
-            self.get_logger().warn(f"❌ Goal failed {self.failed_goal_attempts} times.")
-            if self.failed_goal_attempts >= self.max_failed_goal_attempts:
-                self.get_logger().warn(f"❌ Maximum retries reached for this goal. Aborting and finding a new frontier.")
-                self.failed_goal_attempts = 0
-                self.find_and_navigate_to_frontier()
+        code = result.error_code  # fixed
+        if code == 0:
+            self.get_logger().info("🎉 Goal succeeded")
         else:
-            self.failed_goal_attempts = 0  # Reset after success
-        self.goal_in_progress = False
+            self.get_logger().warn("❌ Goal failed. Blacklisting it immediately.")
+            if self.active_goal:
+                self.blacklist.add(self.active_goal)
 
-    def retry_navigation(self, x, y):
-        """ Retry navigation to a failed goal """
-        self.get_logger().warn(f"❌ Goal failed. Retrying goal ({x}, {y})...")
-        self.send_navigation_goal(x, y)
+        self.active_goal = None
+        self.goal_handle = None
+        self.goal_retry_count = 0
 
-    def explore_edges(self):
-        """ Explore the edges of the map if no frontiers are found """
-        self.get_logger().info("🧭 No frontiers found. Exploring the edges of the map.")
-        # You can implement a basic "edge exploration" by going around the edges of the map.
-        width = self.latest_map.info.width
-        height = self.latest_map.info.height
-        resolution = self.latest_map.info.resolution
-        origin = self.latest_map.info.origin.position
+    def trigger_spin_recovery(self):
+        # Instead of calling a service, just simulate a spin behavior here.
+        # You can integrate nav2_behavior_server spin plugin via an action if implemented.
+        self.get_logger().info("🔄 Triggering spin recovery behavior...")
+        self.get_logger().info("✅ Spin behavior finished. Resuming exploration.")
 
-        # Define the corners of the map for edge exploration
-        corners = [
-            (origin.x, origin.y),  # Top-left
-            (origin.x + width * resolution, origin.y),  # Top-right
-            (origin.x, origin.y + height * resolution),  # Bottom-left
-            (origin.x + width * resolution, origin.y + height * resolution),  # Bottom-right
-        ]
+    def find_new_frontiers(self):
+        if self.latest_map is None:
+            self.get_logger().warn("⚠ No map data available for frontier detection.")
+            return
 
-        for corner in corners:
-            self.get_logger().info(f"📡 Sending goal to edge at {corner}")
-            self.send_navigation_goal(corner[0], corner[1])
+        map_data = self.latest_map
+        resolution = map_data.info.resolution
+        origin = map_data.info.origin.position
+        width = map_data.info.width
+        height = map_data.info.height
+        data = map_data.data
 
-def main(args=None):
-    rclpy.init(args=args)
+        frontier_cells = set()
+        for y in range(1, height - 1):
+            for x in range(1, width - 1):
+                index = y * width + x
+                if data[index] != 0:
+                    continue
+                for dy in [-1, 0, 1]:
+                    for dx in [-1, 0, 1]:
+                        if dx == 0 and dy == 0:
+                            continue
+                        n_idx = (y + dy) * width + (x + dx)
+                        if data[n_idx] == -1:
+                            frontier_cells.add((x, y))
+                            break
+
+        self.frontier_queue.clear()
+        for x, y in frontier_cells:
+            wx = origin.x + x * resolution
+            wy = origin.y + y * resolution
+            if (wx, wy) not in self.blacklist:
+                self.frontier_queue.append((wx, wy))
+
+        self.get_logger().info(f"🔍 Found {len(frontier_cells)} frontier points")
+
+
+def main():
+    rclpy.init()
     node = FrontierExplorer()
-    rclpy.spin(node)
-    node.destroy_node()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
     rclpy.shutdown()
+
 
 if _name_ == '_main_':
     main()
