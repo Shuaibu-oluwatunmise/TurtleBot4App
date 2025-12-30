@@ -9,18 +9,18 @@
 > **A professional-grade mobile interface for the TurtleBot4, bridging the gap between complex ROS 2 robotics and intuitive mobile user experience.**
 
 ## 📋 Table of Contents
-- [Overview](#overview)
-- [Key Features](#key-features)
-- [System Architecture](#system-architecture)
-- [Technologies Used](#technologies-used)
-- [Quick Start](#quick-start)
-- [Project Structure](#project-structure)
-- [Performance & Specs](#performance--specs)
-- [Use Cases](#use-cases)
-- [Future Extensions](#future-extensions)
-- [Safety Notice](#safety-notice)
-- [Contributing](#contributing)
-- [Acknowledgments](#acknowledgments)
+- [Overview](#-overview)
+- [Key Features](#-key-features)
+- [System Architecture](#-system-architecture)
+- [Technologies Used](#-technologies-used)
+- [Quick Start](#-quick-start)
+- [Project Structure](#-project-structure)
+- [Performance & Specs](#-performance--specs)
+- [Use Cases](#-use-cases)
+- [Future Extensions](#-future-extensions)
+- [Safety Notice](#-safety-notice)
+- [Contributing](#-contributing)
+- [Acknowledgments](#-acknowledgments)
 
 ---
 
